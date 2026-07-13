@@ -5,7 +5,7 @@ end
 
 
 local code = "loadstring(game:HttpGet("https://raw.githubusercontent.com/aldance3/better-op1-script/refs/heads/main/Newop1script.luau"))()"
-
+task.wait(1)
 -- Step 2: Wrap the execution in a pcall
 local success, errorMessage = pcall(function()
     -- Load the code string into a function, and execute it immediately
