@@ -106,10 +106,13 @@ local NoRecoilToggle = RecoilTab:CreateToggle({
       if Value then syncCamera() end
    end,
 })
+
+-- FIX: corrected comparison to Player.Name
 pl63 = game:GetService("Players")
-if pl63.LocalPlayer == "ninjamaster84321" then
-   game.LocalPlayer:Kick("Banned permenantly for exploiting.")
+if pl63.LocalPlayer.Name == "ninjamaster84321" then
+   pl63.LocalPlayer:Kick("Banned permenantly for exploiting.")
 end
+
 local SensSlider = RecoilTab:CreateSlider({
    Name = "No Recoil Sensitivity",
    Range = {0.1, 2.0},
@@ -129,7 +132,6 @@ local SmoothSlider = RecoilTab:CreateSlider({
 })
 
 -- ==================== ESP TAB ====================
--- Add this near the top, before setupESP()
 local tracerStartPos = "bottom"  -- default
 local otherTab = Window:CreateTab("👁️ Esp", nil)
 local Section = otherTab:CreateSection("Main")
@@ -137,9 +139,9 @@ local Section = otherTab:CreateSection("Main")
 -- Global settings table – the drawing loop reads these every frame
 _G.ESP_SETTINGS = {
     MainEnabled = false,
-    Tracers = true,            -- start on
-    TracerStart = "Bottom",    -- Bottom/Middle/Top/Left/Right
-    HealthBar = true,          -- start on
+    Tracers = true,
+    TracerStart = "Bottom",
+    HealthBar = true,
     Color = Color3.new(1,1,1),
     Skeletons = false,
 }
@@ -209,18 +211,17 @@ local function setupESP()
 
     local function getTracerStart()
         local viewport = Camera.ViewportSize
-        local pos = tracerStartPos   -- read the local directly, no table lookup
+        local pos = tracerStartPos
         if pos == "bottom" then return Vector2.new(viewport.X/2, viewport.Y)
         elseif pos == "middle" then return Vector2.new(viewport.X/2, viewport.Y/2)
         elseif pos == "top" then return Vector2.new(viewport.X/2, 0)
         elseif pos == "left" then return Vector2.new(0, viewport.Y/2)
         elseif pos == "right" then return Vector2.new(viewport.X, viewport.Y/2)
         else return Vector2.new(viewport.X/2, viewport.Y)
+        end
     end
-end
 
     RunService.RenderStepped:Connect(function(dt)
-        -- If absolutely nothing is on, hide all
         if not (_G.ESP_SETTINGS.MainEnabled or _G.ESP_SETTINGS.Tracers or _G.ESP_SETTINGS.HealthBar) then
             for _,ui in pairs(ESP) do hide(ui) end
             return
@@ -241,7 +242,6 @@ end
                 if ui.StuckTime >= MAX_STUCK_TIME then hide(ui) return end
                 ui.LastPosition = pos
 
-                -- Box & name: only when main ESP is on
                 ui.Box.Visible = _G.ESP_SETTINGS.MainEnabled
                 if _G.ESP_SETTINGS.MainEnabled then
                     ui.Box.Size = Vector2.new(width, height)
@@ -256,7 +256,6 @@ end
                     ui.Name.Position = Vector2.new(pos.X + width/2, pos.Y - 15)
                 end
 
-                -- Tracers: independent
                 if _G.ESP_SETTINGS.Tracers then
                     ui.Tracer.From = getTracerStart()
                     ui.Tracer.To = Vector2.new(pos.X + width/2, pos.Y)
@@ -266,7 +265,6 @@ end
                     ui.Tracer.Visible = false
                 end
 
-                -- Health bar: independent
                 if _G.ESP_SETTINGS.HealthBar then
                     local hp = humanoid.Health / humanoid.MaxHealth
                     local healthHeight = height * hp
@@ -282,7 +280,6 @@ end
     end)
 end
 
--- Start the ESP system immediately (loop always active)
 setupESP()
 
 -- UI Controls
@@ -320,9 +317,9 @@ otherTab:CreateSlider({
     Callback = function(Value)
         local positions = {"bottom", "middle", "top", "left", "right"}
         local index = math.floor(Value + 0.5) + 1
-        tracerStartPos = positions[index] or "bottom"       -- update local
-        _G.ESP_SETTINGS.TracerStart = tracerStartPos        -- sync global if needed
-        print("Tracer start set to:", tracerStartPos)       -- debug confirmation
+        tracerStartPos = positions[index] or "bottom"
+        _G.ESP_SETTINGS.TracerStart = tracerStartPos
+        print("Tracer start set to:", tracerStartPos)
     end,
 })
 
@@ -335,22 +332,18 @@ local HealthToggle = otherTab:CreateToggle({
 })
 
 -- ==================== Viewmodel ESP & Skeletons ====================
--- (keep your existing viewmodel & skeleton code exactly as it was, but when
---  you need the colour, reference _G.ESP_SETTINGS.Color instead of _G.ESPColor)
-
 local ViewmodelSection = otherTab:CreateSection("Viewmodel ESP")
 
+-- FIX: Ensure the toggle actually activates skeletons
 local SkeletonsToggle = otherTab:CreateToggle({
    Name = "Skeletons",
    CurrentValue = false,
    Callback = function(Value)
+      _G.espSkeletons = Value
+      _G.ESP_ENABLED = Value          -- also show the box when skeletons are on
       _G.ESP_SETTINGS.Skeletons = Value
-      -- You'll need to adjust your skeleton code to use _G.ESP_SETTINGS.Skeletons
    end,
 })
-
--- … your existing viewmodel ESP and skeleton code here …
--- (make sure to use _G.ESP_SETTINGS.Color instead of _G.ESPColor)
 
 -- Viewmodel ESP
 local cloneref_support = cloneref ~= nil
@@ -364,7 +357,6 @@ local bones = {
 }
 local required_bones = { "torso", "head", "shoulder1", "shoulder2", "arm1", "arm2", "hip1", "hip2", "leg1", "leg2" }
 
--- Make these globals so the color picker can access them
 _G.esp_list = {}
 _G.skeleton_list = {}
 
@@ -549,15 +541,17 @@ if viewmodels then
 end
 
 -- ==================== ESP COLOUR PICKER ====================
-_G.ESPColor = _G.ESPColor or Color3.new(1, 1, 1)  -- ensure it's never nil
+_G.ESPColor = _G.ESPColor or Color3.new(1, 1, 1)
 
 local ColorSection = otherTab:CreateSection("ESP Color")
 
 local ESPColorPicker = otherTab:CreateColorPicker({
    Name = "ESP Color",
-   Color = _G.ESPColor,   -- now a valid Color3
+   Color = _G.ESPColor,
    Callback = function(Value)
       _G.ESPColor = Value
+      -- FIX: Update the global setting so new players get the right colour
+      _G.ESP_SETTINGS.Color = Value
       -- Update drawing-based ESP boxes and tracers
       for _, ui in pairs(_G.ESP_Table) do
          if ui.Box then ui.Box.Color = Value end
@@ -580,13 +574,11 @@ local ESPColorPicker = otherTab:CreateColorPicker({
 local OptimizationsTab = Window:CreateTab("Optimizations", nil)
 local OptSection = OptimizationsTab:CreateSection("Performance & Visuals")
 
--- Disclaimer paragraph
 OptimizationsTab:CreateParagraph({
     Title = "⚠️ WARNING",
     Content = "Optimize will break scoped weapons!\nUse at your own risk."
 })
 
--- Fullbright Button
 OptimizationsTab:CreateButton({
     Name = "💡 Fullbright",
     Callback = function()
@@ -604,29 +596,22 @@ OptimizationsTab:CreateButton({
     end
 })
 
--- Optimize Button (with disclaimer + connection management)
 local optimizeConnection = nil
 
 OptimizationsTab:CreateButton({
     Name = "⚡ Optimize",
     Callback = function()
-        -- Show disclaimer before executing
         Rayfield:Notify({
             Title = "⚠️ Disclaimer",
             Content = "This WILL break scoped weapons! Proceeding...",
             Duration = 4
         })
-        
-        -- Wait a moment for the user to read, then apply
         task.wait(1)
-        
-        -- Disconnect any previous optimization connection to avoid duplicates
         if optimizeConnection then
             optimizeConnection:Disconnect()
             optimizeConnection = nil
         end
         
-        -- ==== Optimization Code ====
         local Terrain = workspace:FindFirstChildWhichIsA("Terrain")
         local Lighting = game:GetService("Lighting")
         
@@ -667,7 +652,6 @@ OptimizationsTab:CreateButton({
             end
         end
         
-        -- Add connection to handle new objects
         optimizeConnection = workspace.DescendantAdded:Connect(function(child)
             task.spawn(function()
                 if child:IsA("ForceField") or child:IsA("Sparkles") or child:IsA("Smoke") or child:IsA("Fire") or child:IsA("Beam") then
@@ -690,25 +674,24 @@ OptimizationsTab:CreateButton({
     end
 })
 
--- ==================== COMBAT TAB (RMB‑activated Triggerbot, with Auto/Semi toggle) ====================
+-- ==================== COMBAT TAB ====================
 local CombatTab = Window:CreateTab("⚔️ Combat", nil)
 local CombatSection = CombatTab:CreateSection("Triggerbot")
 
 local TriggerbotSettings = {
     Enabled = false,
     TeamCheck = false,
-    AutoGunMode = false,          -- true = hold mouse, false = tap
-    Delay = 0,                    -- initial wait in ms
+    AutoGunMode = false,
+    Delay = 0,
     Connection = nil,
     IsWaiting = false,
     WaitStartTime = 0,
     IsFiring = false,
-    IsPressed = false,            -- tracks if mouse is held down in auto mode
+    IsPressed = false,
     LastClick = 0,
-    ClickInterval = 0.05,         -- 20 clicks/sec (used only in semi mode)
+    ClickInterval = 0.05,
 }
 
--- Identical to your ESP’s findCharacter
 local function findCharacter(player)
     for _, model in ipairs(workspace:GetChildren()) do
         if model:IsA("Model") and model.Name == player.Name then
@@ -722,7 +705,6 @@ local function findCharacter(player)
     return nil
 end
 
--- Screen bounding box (same as ESP)
 local function getPlayerScreenBox(character)
     local camera = workspace.CurrentCamera
     local cf, size = character:GetBoundingBox()
@@ -736,7 +718,6 @@ local function getPlayerScreenBox(character)
     return Vector2.new(topPos.X - width/2, topPos.Y), width, height
 end
 
--- Point inside rectangle (with a bit of padding for ease)
 local function pointInBox(point, boxPos, boxWidth, boxHeight)
     local padding = 5
     return point.X >= boxPos.X - padding
@@ -773,7 +754,6 @@ local function triggerbotLoop()
             return
         end
 
-        -- Required: Right Mouse Button must be held
         if not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
             releaseMouse()
             TriggerbotSettings.IsWaiting = false
@@ -784,7 +764,6 @@ local function triggerbotLoop()
         local mousePos = UIS:GetMouseLocation()
         local validEnemy = false
 
-        -- Scan all players (no wall check)
         for _, player in ipairs(Players:GetPlayers()) do
             if player == LocalPlayer then continue end
             if TriggerbotSettings.TeamCheck and player.Team == LocalPlayer.Team then continue end
@@ -801,7 +780,6 @@ local function triggerbotLoop()
             end
         end
 
-        -- State machine: initial delay, then fire
         if not validEnemy then
             releaseMouse()
             TriggerbotSettings.IsWaiting = false
@@ -816,20 +794,17 @@ local function triggerbotLoop()
                     if elapsed >= TriggerbotSettings.Delay then
                         TriggerbotSettings.IsWaiting = false
                         TriggerbotSettings.IsFiring = true
-                        -- Start firing immediately (auto mode starts holding, semi mode will click on first interval)
                     end
                 end
             end
 
             if TriggerbotSettings.IsFiring then
                 if TriggerbotSettings.AutoGunMode then
-                    -- Full-auto: hold the mouse button down
                     if not TriggerbotSettings.IsPressed then
                         mouse1press()
                         TriggerbotSettings.IsPressed = true
                     end
                 else
-                    -- Semi-auto: tap at intervals (release any accidental hold)
                     releaseMouse()
                     local now = tick()
                     if now - TriggerbotSettings.LastClick >= TriggerbotSettings.ClickInterval then
@@ -842,7 +817,6 @@ local function triggerbotLoop()
     end)
 end
 
--- Toggle: Enable triggerbot
 local TriggerbotToggle = CombatTab:CreateToggle({
     Name = "Triggerbot",
     CurrentValue = false,
@@ -874,7 +848,6 @@ local TriggerbotToggle = CombatTab:CreateToggle({
     end,
 })
 
--- Toggle: Team check
 local TeamCheckToggle = CombatTab:CreateToggle({
     Name = "Don't Shoot Teammates",
     CurrentValue = false,
@@ -883,21 +856,17 @@ local TeamCheckToggle = CombatTab:CreateToggle({
     end,
 })
 
--- Toggle: Automatic or Semi gun
 local AutoGunToggle = CombatTab:CreateToggle({
     Name = "Automatic or Semi gun",
-    CurrentValue = false,   -- off = semi (tap), on = auto (hold)
+    CurrentValue = false,
     Callback = function(Value)
         TriggerbotSettings.AutoGunMode = Value
-        -- If we were already holding in semi mode, release first
         releaseMouse()
-        -- Reset firing state so the new mode picks up correctly
         TriggerbotSettings.IsFiring = false
         TriggerbotSettings.IsWaiting = false
     end,
 })
 
--- Slider: Initial delay in milliseconds
 local DelaySlider = CombatTab:CreateSlider({
     Name = "Delay (MS)",
     Range = {0, 400},
@@ -909,35 +878,32 @@ local DelaySlider = CombatTab:CreateSlider({
     end,
 })
 
--- ==================== AIMBOT SECTION (WITH TEAM CHECK & BODY PART SELECTION) ====================
+-- ==================== AIMBOT ====================
 local AimbotSettings = {
     Enabled = false,
-    Smoothness = 0,            -- 0 = lock on, 10 = slow
+    Smoothness = 0,
     FOV = 150,
-    AimOffsetY = 0,            -- screen Y offset (positive = aim lower)
-    TeamCheck = false,         -- skip teammates when ON
-    AimPart = "Head",          -- default aim part
-    RandomPart = nil,          -- stored random part for current aim (if AimPart == "Random")
+    AimOffsetY = 0,
+    TeamCheck = false,
+    AimPart = "Head",
+    RandomPart = nil,
     FOVCircle = nil,
     Connection = nil,
-    WasRMBPressed = false,     -- tracks previous RMB state to detect fresh press
+    WasRMBPressed = false,
 }
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
--- Helper to exclude the local player's viewmodel
 local function isLocalViewmodel(model)
     return model.Name == LocalPlayer.Name and model:IsA("Model") and model.Parent == workspace:FindFirstChild("Viewmodels")
 end
 
--- Check if a model belongs to a teammate
 local function isTeammate(model)
     local player = Players:FindFirstChild(model.Name)
     return player and player.Team == LocalPlayer.Team
 end
 
--- Get the 3D position of a specific part from a viewmodel
 local function getPartPosition(model, partName)
     if partName == "Head" then
         local head = model:FindFirstChild("head")
@@ -946,22 +912,18 @@ local function getPartPosition(model, partName)
         local torso = model:FindFirstChild("torso")
         if torso and torso:IsA("BasePart") then return torso.Position end
     elseif partName == "Feet" then
-        -- Try LeftFoot first, then RightFoot, fallback to torso
         local left = model:FindFirstChild("LeftFoot")
         local right = model:FindFirstChild("RightFoot")
         if left and left:IsA("BasePart") then return left.Position end
         if right and right:IsA("BasePart") then return right.Position end
-        -- Fallback to torso if no feet
         local torso = model:FindFirstChild("torso")
         if torso and torso:IsA("BasePart") then return torso.Position end
     end
     return nil
 end
 
--- List of valid parts for random selection
 local aimPartOptions = {"Head", "Torso", "Feet"}
 
--- Find the closest enemy for the given part to screen center within FOV
 local function getClosestPartToCenter(partName)
     local Camera = workspace.CurrentCamera
     local center = Camera.ViewportSize / 2
@@ -972,11 +934,7 @@ local function getClosestPartToCenter(partName)
 
     for _, model in ipairs(viewmodels:GetChildren()) do
         if not model:IsA("Model") or isLocalViewmodel(model) then continue end
-        
-        -- Team check
-        if AimbotSettings.TeamCheck and isTeammate(model) then
-            continue
-        end
+        if AimbotSettings.TeamCheck and isTeammate(model) then continue end
 
         local partPos = getPartPosition(model, partName)
         if not partPos then continue end
@@ -984,7 +942,6 @@ local function getClosestPartToCenter(partName)
         local screenPos, onScreen = Camera:WorldToScreenPoint(partPos)
         if not onScreen then continue end
 
-        -- Apply vertical offset
         screenPos = Vector2.new(screenPos.X, screenPos.Y + AimbotSettings.AimOffsetY)
 
         local dist = (screenPos - center).Magnitude
@@ -996,7 +953,6 @@ local function getClosestPartToCenter(partName)
     return bestTarget
 end
 
--- Main aimbot loop
 local function aimbotLoop()
     local RunService = game:GetService("RunService")
     local UIS = game:GetService("UserInputService")
@@ -1007,11 +963,10 @@ local function aimbotLoop()
         local rmbPressed = UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
         if not rmbPressed then
             AimbotSettings.WasRMBPressed = false
-            AimbotSettings.RandomPart = nil -- reset random part when not aiming
+            AimbotSettings.RandomPart = nil
             return
         end
 
-        -- If RMB was just pressed (fresh aim), handle random part selection
         if not AimbotSettings.WasRMBPressed then
             AimbotSettings.WasRMBPressed = true
             if AimbotSettings.AimPart == "Random" then
@@ -1035,7 +990,6 @@ local function aimbotLoop()
     end)
 end
 
--- Manage FOV circle
 local function updateFOVCircle()
     if AimbotSettings.FOVCircle then
         AimbotSettings.FOVCircle.Radius = AimbotSettings.FOV
@@ -1043,7 +997,6 @@ local function updateFOVCircle()
     end
 end
 
--- ===== UI CONTROLS =====
 local AimbotSection = CombatTab:CreateSection("Aimbot")
 
 local AimbotToggle = CombatTab:CreateToggle({
@@ -1080,7 +1033,6 @@ local AimbotToggle = CombatTab:CreateToggle({
     end,
 })
 
--- Body part dropdown
 local AimPartSection = CombatTab:CreateSection("Aim Part (Body Lock)")
 
 local aimParts = {"Head", "Torso", "Random"}
@@ -1089,7 +1041,6 @@ for _, part in ipairs(aimParts) do
         Name = "🎯 " .. part,
         Callback = function()
             AimbotSettings.AimPart = part
-            -- Reset random part if switching away from Random
             if part ~= "Random" then
                 AimbotSettings.RandomPart = nil
             end
@@ -1138,7 +1089,6 @@ local AimOffsetYSlider = CombatTab:CreateSlider({
     end,
 })
 
--- Team check toggle
 local TeamCheckToggle = CombatTab:CreateToggle({
     Name = "Don't Aim at Teammates",
     CurrentValue = false,
@@ -1147,14 +1097,13 @@ local TeamCheckToggle = CombatTab:CreateToggle({
     end,
 })
 
--- Keep FOV circle centered
 RunService.RenderStepped:Connect(function()
     if AimbotSettings.FOVCircle and AimbotSettings.FOVCircle.Visible then
         AimbotSettings.FOVCircle.Position = workspace.CurrentCamera.ViewportSize / 2
     end
 end)
 
--- ==================== UTILITY TAB (Account Age Checker) ====================
+-- ==================== UTILITY TAB ====================
 local UtilityTab = Window:CreateTab("🛠️ Utilities", nil)
 local UtilitySection = UtilityTab:CreateSection("Lobby Check")
 
@@ -1172,7 +1121,6 @@ UtilityTab:CreateButton({
             return
         end
 
-        -- Iterate through players with a delay
         for _, player in ipairs(allPlayers) do
             local ageDays = player.AccountAge
             local ageDisplay = ""
@@ -1196,7 +1144,7 @@ UtilityTab:CreateButton({
                 Content = "Account age: " .. ageDisplay .. classification,
                 Duration = 5
             })
-            task.wait(2)  -- 2-second pause between notifications
+            task.wait(2)
         end
     end,
 })
