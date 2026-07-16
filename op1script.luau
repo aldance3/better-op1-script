@@ -370,12 +370,20 @@ local camera = workspace.CurrentCamera
 
 workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function() camera = workspace.CurrentCamera end)
 
-local teammate_highlights = {}
-workspace.ChildAdded:Connect(function(child) if child:IsA("Highlight") then teammate_highlights[child] = true end end)
-workspace.ChildRemoved:Connect(function(child) if child:IsA("Highlight") then teammate_highlights[child] = nil end end)
+_G.TeammateHighlights = _G.TeammateHighlights or {}
+workspace.ChildAdded:Connect(function(child)
+    if child:IsA("Highlight") then
+        _G.TeammateHighlights[child] = true
+    end
+end)
+workspace.ChildRemoved:Connect(function(child)
+    if child:IsA("Highlight") then
+        _G.TeammateHighlights[child] = nil
+    end
+end)
 
 local function is_teammate(model)
-    for highlight in pairs(teammate_highlights) do
+     for highlight in pairs(_G.TeammateHighlights) do
         if highlight.Adornee == model then return true end
     end
     return false
