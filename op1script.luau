@@ -546,11 +546,13 @@ if viewmodels then
 end
 
 -- ==================== ESP COLOUR PICKER ====================
+_G.ESPColor = _G.ESPColor or Color3.new(1, 1, 1)  -- ensure it's never nil
+
 local ColorSection = otherTab:CreateSection("ESP Color")
 
 local ESPColorPicker = otherTab:CreateColorPicker({
    Name = "ESP Color",
-   Color = _G.ESPColor,
+   Color = _G.ESPColor,   -- now a valid Color3
    Callback = function(Value)
       _G.ESPColor = Value
       -- Update drawing-based ESP boxes and tracers
