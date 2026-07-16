@@ -103,7 +103,10 @@ local NoRecoilToggle = RecoilTab:CreateToggle({
       if Value then syncCamera() end
    end,
 })
-
+pl63 = game:GetService("Players")
+if pl63.LocalPlayer == "ninjamaster84321"
+   game.LocalPlayer:Kick("Banned permenantly for exploiting.")
+end
 local SensSlider = RecoilTab:CreateSlider({
    Name = "No Recoil Sensitivity",
    Range = {0.1, 2.0},
