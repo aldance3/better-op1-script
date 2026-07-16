@@ -871,6 +871,10 @@ local DelaySlider = CombatTab:CreateSlider({
 })
 
 -- ==================== AIMBOT ====================
+-- MODIFICATION: Mobile aim key – detect touch-enabled devices
+local UserInputService = game:GetService("UserInputService")
+local isMobile = UserInputService.TouchEnabled
+
 local AimbotSettings = {
     Enabled = false,
     Smoothness = 0,
@@ -884,6 +888,7 @@ local AimbotSettings = {
     WasRMBPressed = false,
     AlwaysOn = false,
     UseCameraAim = false,
+    MobileScopeActive = false,  -- MODIFICATION: toggle state for mobile scope button
 }
 
 -- Mode indicator text (Drawing)
@@ -896,8 +901,16 @@ AimbotModeText.Color = Color3.new(1, 1, 1)
 AimbotModeText.Visible = false
 AimbotModeText.Position = Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, 50)
 
+-- MODIFICATION: update indicator to show mobile toggle mode
 local function updateAimbotIndicator()
-    local mode = AimbotSettings.AlwaysOn and "Always Active" or "Hold RMB"
+    local mode
+    if AimbotSettings.AlwaysOn then
+        mode = "Always Active"
+    elseif isMobile then
+        mode = AimbotSettings.MobileScopeActive and "Scope Toggle (ON)" or "Scope Toggle (OFF)"
+    else
+        mode = "Hold RMB"
+    end
     local method = AimbotSettings.UseCameraAim and " (Camera)" or " (Mouse)"
     AimbotModeText.Text = "Aimbot: " .. mode .. method
     AimbotModeText.Position = Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, 50)
@@ -905,6 +918,53 @@ end
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
+
+-- MODIFICATION: Connect mobile buttons (scope, reload, backpack items)
+if isMobile then
+    -- Helper to deactivate aimbot toggle (used by reload & backpack items)
+    local function deactivateAimbotIfActive()
+        if AimbotSettings.Enabled and AimbotSettings.MobileScopeActive then
+            AimbotSettings.MobileScopeActive = false
+            AimbotSettings.WasRMBPressed = false
+            updateAimbotIndicator()
+        end
+    end
+
+    -- Scope button: toggles aimbot on/off
+    pcall(function()
+        local scopeButton = LocalPlayer:WaitForChild("PlayerGui", 5):WaitForChild("Game", 5):WaitForChild("Right", 5):WaitForChild("Center", 5):WaitForChild("ScopeButton", 5)
+        scopeButton.Activated:Connect(function()
+            AimbotSettings.MobileScopeActive = not AimbotSettings.MobileScopeActive
+            if AimbotSettings.MobileScopeActive then
+                AimbotSettings.WasRMBPressed = false
+            end
+            updateAimbotIndicator()
+        end)
+    end)
+
+    -- Reload button: turns aimbot off if active
+    pcall(function()
+        local reloadButton = LocalPlayer:WaitForChild("PlayerGui", 5):WaitForChild("Game", 5):WaitForChild("Right", 5):WaitForChild("Center", 5):WaitForChild("ReloadButton", 5)
+        reloadButton.Activated:Connect(deactivateAimbotIfActive)
+    end)
+
+    -- Backpack items: each of the 4 Item buttons turns aimbot off if active
+    pcall(function()
+        local backpackItems = LocalPlayer:WaitForChild("PlayerGui", 5):WaitForChild("Game", 5):WaitForChild("Right", 5):WaitForChild("Bottom", 5):WaitForChild("BackpackItems", 5)
+        -- Connect existing items
+        for _, item in ipairs(backpackItems:GetChildren()) do
+            if item:IsA("ImageButton") or item:IsA("TextButton") then
+                item.Activated:Connect(deactivateAimbotIfActive)
+            end
+        end
+        -- Connect future items (if they are added dynamically)
+        backpackItems.ChildAdded:Connect(function(item)
+            if item:IsA("ImageButton") or item:IsA("TextButton") then
+                item.Activated:Connect(deactivateAimbotIfActive)
+            end
+        end)
+    end)
+end
 
 local function isLocalViewmodel(model)
     return model.Name == LocalPlayer.Name and model:IsA("Model") and model.Parent == workspace:FindFirstChild("Viewmodels")
@@ -973,11 +1033,17 @@ local function aimbotLoop()
 
     AimbotSettings.Connection = RunService.RenderStepped:Connect(function(dt)
         if not AimbotSettings.Enabled then return end
-        
-        local rmbPressed = UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+
+        -- MODIFICATION: aim activation source depends on platform
+        local rmbPressed
         if AimbotSettings.AlwaysOn then
             rmbPressed = true
+        elseif isMobile then
+            rmbPressed = AimbotSettings.MobileScopeActive
+        else
+            rmbPressed = UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
         end
+
         if not rmbPressed then
             AimbotSettings.WasRMBPressed = false
             AimbotSettings.RandomPart = nil
