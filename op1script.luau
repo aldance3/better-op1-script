@@ -133,6 +133,7 @@ _G.ESP_ENABLED = false
 _G.ESPInitialized = false
 _G.espSkeletons = false
 _G.ESP_Table = {}
+_G.ESPColor = Color3.new(1, 1, 1)  -- default white, will be changed by the colour picker
 
 _G.destroyESP = function()
    for _,ui in pairs(_G.ESP_Table) do
@@ -187,8 +188,8 @@ local function setupESP()
       if player == LocalPlayer or ESP[player] then return end
       ESP[player] = {
          Player = player,
-         Box = newDrawing("Square", {Thickness = 1, Filled = false, Color = Color3.new(1,1,1), Visible = false}),
-         Tracer = newDrawing("Line", {Thickness = 1, Color = Color3.new(1,1,1), Visible = false}),
+         Box = newDrawing("Square", {Thickness = 1, Filled = false, Color = _G.ESPColor, Visible = false}),
+         Tracer = newDrawing("Line", {Thickness = 1, Color = _G.ESPColor, Visible = false}),
          Health = newDrawing("Line", {Thickness = 3, Visible = false}),
          Name = newDrawing("Text", {Size = 13, Center = true, Outline = true, Font = 2, Visible = false}),
          LastPosition = nil,
@@ -297,8 +298,9 @@ local bones = {
 }
 local required_bones = { "torso", "head", "shoulder1", "shoulder2", "arm1", "arm2", "hip1", "hip2", "leg1", "leg2" }
 
-local esp_list = {}
-local skeleton_list = {}
+-- Make these globals so the color picker can access them
+_G.esp_list = {}
+_G.skeleton_list = {}
 
 local viewmodels = workspace:FindFirstChild("Viewmodels")
 local camera = workspace.CurrentCamera
@@ -334,14 +336,14 @@ screen_gui.Name = rand_str(12)
 screen_gui.Parent = gethui_support and gethui() or game:GetService("CoreGui")
 
 local function remove_skeleton(character)
-    local data = skeleton_list[character]
+    local data = _G.skeleton_list[character]
     if not data then return end
     for _, line in ipairs(data.lines) do line:Remove() end
-    skeleton_list[character] = nil
+    _G.skeleton_list[character] = nil
 end
 
 local function create_skeleton(character)
-    if not character or skeleton_list[character] or not is_valid(character) then return end
+    if not character or _G.skeleton_list[character] or not is_valid(character) then return end
     local char_bones = {}
     for _, name in ipairs(required_bones) do
         local b = character:FindFirstChild(name)
@@ -353,16 +355,16 @@ local function create_skeleton(character)
     for i = 1, #bones do
         local line = Drawing.new("Line")
         line.Visible = false
-        line.Color = Color3.new(1, 1, 1)
+        line.Color = _G.ESPColor
         line.Thickness = 1
         line.Transparency = 1
         lines[i] = line
     end
-    skeleton_list[character] = { lines = lines, bones = char_bones }
+    _G.skeleton_list[character] = { lines = lines, bones = char_bones }
 end
 
 local function create_esp(character)
-    if not character or not is_valid(character) or esp_list[character] then return end
+    if not character or not is_valid(character) or _G.esp_list[character] then return end
     
     local folder = Instance.new("Folder", screen_gui)
     local box = Instance.new("Frame", folder)
@@ -370,21 +372,21 @@ local function create_esp(character)
     
     box.BackgroundTransparency = 1
     box.BorderSizePixel = 0
-    stroke.Color = Color3.new(1, 1, 1)
+    stroke.Color = _G.ESPColor
     stroke.Thickness = 1
     
-    esp_list[character] = { folder = folder, box = box }
+    _G.esp_list[character] = { folder = folder, box = box }
 end
 
 runservice.RenderStepped:Connect(function()
-    for character, data in pairs(esp_list) do
+    for character, data in pairs(_G.esp_list) do
         local box = data.box
         local folder = data.folder
         
         if not character or not character.Parent or not is_valid(character) then
             box.Visible = false
             folder:Destroy()
-            esp_list[character] = nil
+            _G.esp_list[character] = nil
             remove_skeleton(character)
             continue
         end
@@ -399,8 +401,8 @@ runservice.RenderStepped:Connect(function()
         
         if on_screen and (camera.CFrame.Position - torso.Position).Magnitude <= 3571.4 then
             if _G.espSkeletons then
-                if not skeleton_list[character] then create_skeleton(character) end
-                local skel = skeleton_list[character]
+                if not _G.skeleton_list[character] then create_skeleton(character) end
+                local skel = _G.skeleton_list[character]
                 
                 if skel then
                     local min_x, min_y = math.huge, math.huge
@@ -467,10 +469,36 @@ if viewmodels then
         if v:IsA("Model") then task.delay(0.2, create_esp, v) end
     end)
     viewmodels.ChildRemoved:Connect(function(v)
-        if esp_list[v] then esp_list[v].folder:Destroy() esp_list[v] = nil end
+        if _G.esp_list[v] then _G.esp_list[v].folder:Destroy() _G.esp_list[v] = nil end
         remove_skeleton(v)
     end)
 end
+
+-- ==================== ESP COLOUR PICKER ====================
+local ColorSection = otherTab:CreateSection("ESP Color")
+
+local ESPColorPicker = otherTab:CreateColorPicker({
+   Name = "ESP Color",
+   Color = _G.ESPColor,
+   Callback = function(Value)
+      _G.ESPColor = Value
+      -- Update drawing-based ESP boxes and tracers
+      for _, ui in pairs(_G.ESP_Table) do
+         if ui.Box then ui.Box.Color = Value end
+         if ui.Tracer then ui.Tracer.Color = Value end
+      end
+      -- Update skeleton lines
+      for _, skel in pairs(_G.skeleton_list) do
+         for _, line in ipairs(skel.lines) do
+            line.Color = Value
+         end
+      end
+      -- Update viewmodel ESP box strokes
+      for _, data in pairs(_G.esp_list) do
+         data.box.UIStroke.Color = Value
+      end
+   end,
+})
 
 -- ==================== OPTIMIZATIONS TAB ====================
 local OptimizationsTab = Window:CreateTab("Optimizations", nil)
