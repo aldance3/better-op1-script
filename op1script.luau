@@ -804,3 +804,180 @@ local DelaySlider = CombatTab:CreateSlider({
         TriggerbotSettings.Delay = Value
     end,
 })
+
+-- ==================== AIMBOT SECTION (WITH TEAM CHECK) ====================
+local AimbotSettings = {
+    Enabled = false,
+    Smoothness = 0,            -- 0 = lock on, 10 = slow
+    FOV = 150,
+    AimOffsetY = 0,            -- screen Y offset (positive = aim lower)
+    TeamCheck = false,         -- skip teammates when ON
+    FOVCircle = nil,
+    Connection = nil,
+}
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- Helper to exclude the local player's viewmodel
+local function isLocalViewmodel(model)
+    return model.Name == LocalPlayer.Name and model:IsA("Model") and model.Parent == workspace:FindFirstChild("Viewmodels")
+end
+
+-- Check if a model belongs to a teammate (using model name = player name)
+local function isTeammate(model)
+    local player = Players:FindFirstChild(model.Name)
+    return player and player.Team == LocalPlayer.Team
+end
+
+-- Find the closest enemy head to screen center within FOV (with Y offset & team check)
+local function getClosestHeadToCenter()
+    local Camera = workspace.CurrentCamera
+    local center = Camera.ViewportSize / 2
+    local bestDist = AimbotSettings.FOV
+    local bestTarget = nil
+    local viewmodels = workspace:FindFirstChild("Viewmodels")
+    if not viewmodels then return nil end
+
+    for _, model in ipairs(viewmodels:GetChildren()) do
+        if not model:IsA("Model") or isLocalViewmodel(model) then continue end
+        
+        -- Team check
+        if AimbotSettings.TeamCheck and isTeammate(model) then
+            continue
+        end
+
+        local head = model:FindFirstChild("head")
+        if not head or not head:IsA("BasePart") then continue end
+
+        local screenPos, onScreen = Camera:WorldToScreenPoint(head.Position)
+        if not onScreen then continue end
+
+        -- Apply vertical offset
+        screenPos = Vector2.new(screenPos.X, screenPos.Y + AimbotSettings.AimOffsetY)
+
+        local dist = (screenPos - center).Magnitude
+        if dist < bestDist then
+            bestDist = dist
+            bestTarget = screenPos
+        end
+    end
+    return bestTarget
+end
+
+-- Main aimbot loop
+local function aimbotLoop()
+    local RunService = game:GetService("RunService")
+    local UIS = game:GetService("UserInputService")
+
+    AimbotSettings.Connection = RunService.RenderStepped:Connect(function(dt)
+        if not AimbotSettings.Enabled then return end
+        if not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return end
+
+        local target = getClosestHeadToCenter()
+        if not target then return end
+
+        local center = workspace.CurrentCamera.ViewportSize / 2
+        local delta = target - center
+
+        local smoothness = AimbotSettings.Smoothness
+        local factor = (smoothness <= 0) and 1 or math.clamp(1 - (smoothness / 10), 0.05, 1)
+
+        mousemoverel(delta.X * factor, delta.Y * factor)
+    end)
+end
+
+-- Manage FOV circle
+local function updateFOVCircle()
+    if AimbotSettings.FOVCircle then
+        AimbotSettings.FOVCircle.Radius = AimbotSettings.FOV
+        AimbotSettings.FOVCircle.Visible = AimbotSettings.Enabled
+    end
+end
+
+-- ===== UI CONTROLS =====
+local AimbotSection = CombatTab:CreateSection("Aimbot")
+
+local AimbotToggle = CombatTab:CreateToggle({
+    Name = "Aimbot",
+    CurrentValue = false,
+    Callback = function(Value)
+        AimbotSettings.Enabled = Value
+        if Value then
+            if not AimbotSettings.Connection then
+                aimbotLoop()
+            end
+            if not AimbotSettings.FOVCircle then
+                AimbotSettings.FOVCircle = Drawing.new("Circle")
+                AimbotSettings.FOVCircle.Visible = false
+                AimbotSettings.FOVCircle.Color = Color3.new(1,1,1)
+                AimbotSettings.FOVCircle.Thickness = 1
+                AimbotSettings.FOVCircle.Filled = false
+                AimbotSettings.FOVCircle.Transparency = 1
+                AimbotSettings.FOVCircle.Position = workspace.CurrentCamera.ViewportSize / 2
+                AimbotSettings.FOVCircle.Radius = AimbotSettings.FOV
+            end
+            AimbotSettings.FOVCircle.Visible = true
+        else
+            if AimbotSettings.Connection then
+                AimbotSettings.Connection:Disconnect()
+                AimbotSettings.Connection = nil
+            end
+            if AimbotSettings.FOVCircle then
+                AimbotSettings.FOVCircle.Visible = false
+            end
+        end
+    end,
+})
+
+local SmoothnessSlider = CombatTab:CreateSlider({
+    Name = "Smoothness",
+    Range = {0, 10},
+    Increment = 0.1,
+    Suffix = "",
+    CurrentValue = 0,
+    Callback = function(Value)
+        AimbotSettings.Smoothness = Value
+    end,
+})
+
+local FOVSlider = CombatTab:CreateSlider({
+    Name = "FOV",
+    Range = {50, 300},
+    Increment = 5,
+    Suffix = "px",
+    CurrentValue = 150,
+    Callback = function(Value)
+        AimbotSettings.FOV = Value
+        if AimbotSettings.FOVCircle then
+            AimbotSettings.FOVCircle.Radius = Value
+        end
+    end,
+})
+
+local AimOffsetYSlider = CombatTab:CreateSlider({
+    Name = "Aim Offset Y",
+    Range = {-20, 20},
+    Increment = 1,
+    Suffix = "px",
+    CurrentValue = 0,
+    Callback = function(Value)
+        AimbotSettings.AimOffsetY = Value
+    end,
+})
+
+-- NEW: Team check toggle
+local TeamCheckToggle = CombatTab:CreateToggle({
+    Name = "Don't Aim at Teammates",
+    CurrentValue = false,
+    Callback = function(Value)
+        AimbotSettings.TeamCheck = Value
+    end,
+})
+
+-- Keep FOV circle centered
+RunService.RenderStepped:Connect(function()
+    if AimbotSettings.FOVCircle and AimbotSettings.FOVCircle.Visible then
+        AimbotSettings.FOVCircle.Position = workspace.CurrentCamera.ViewportSize / 2
+    end
+end)
