@@ -1,6 +1,9 @@
 -- ==== Initialization ====
 local RunService = game:GetService("RunService")
 local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua'))()
+_G.ESPColor = _G.ESPColor or Color3.new(1, 1, 1)   -- default white
+_G.espSkeletons = false
+_G.ESP_ENABLED = false
 local Window = Rayfield:CreateWindow({
    Name = "⚔️ Operation One Script",
    Icon = 0,
