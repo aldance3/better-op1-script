@@ -957,7 +957,7 @@ local FOVSlider = CombatTab:CreateSlider({
 
 local AimOffsetYSlider = CombatTab:CreateSlider({
     Name = "Aim Offset Y",
-    Range = {-20, 20},
+    Range = {-60, 60},
     Increment = 1,
     Suffix = "px",
     CurrentValue = 0,
