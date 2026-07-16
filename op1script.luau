@@ -571,18 +571,32 @@ OptimizationsTab:CreateParagraph({
     Content = "Optimize will break scoped weapons!\nUse at your own risk."
 })
 
+-- Brightness slider (0-4)
+local fullbrightBrightness = 2
+
+OptimizationsTab:CreateSlider({
+    Name = "Fullbright Brightness",
+    Range = {0, 4},
+    Increment = 1,
+    Suffix = "",
+    CurrentValue = 2,
+    Callback = function(Value)
+        fullbrightBrightness = Value
+    end,
+})
+
 OptimizationsTab:CreateButton({
     Name = "💡 Fullbright",
     Callback = function()
         local Lighting = game:GetService("Lighting")
-        Lighting.Brightness = 2
+        Lighting.Brightness = fullbrightBrightness
         Lighting.ClockTime = 14
         Lighting.FogEnd = 100000
         Lighting.GlobalShadows = false
         Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
         Rayfield:Notify({
             Title = "Fullbright",
-            Content = "Lighting set to maximum brightness!",
+            Content = "Brightness set to: " .. fullbrightBrightness,
             Duration = 3
         })
     end
