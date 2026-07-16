@@ -1,9 +1,10 @@
 -- ==== Initialization ====
 local RunService = game:GetService("RunService")
 local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua'))()
-_G.ESPColor = _G.ESPColor or Color3.new(1, 1, 1)   -- default white
+_G.ESPColor = _G.ESPColor or Color3.new(1, 1, 1)
 _G.espSkeletons = false
 _G.ESP_ENABLED = false
+
 local Window = Rayfield:CreateWindow({
    Name = "⚔️ Operation One Script",
    Icon = 0,
@@ -22,7 +23,7 @@ local Window = Rayfield:CreateWindow({
 })
 
 Rayfield:Notify({
-   Title = "Operation One Script Loaded! ",
+   Title = "Operation One Script Loaded!",
    Content = "All systems ready",
    Duration = 5,
 })
@@ -107,7 +108,6 @@ local NoRecoilToggle = RecoilTab:CreateToggle({
    end,
 })
 
--- FIX: corrected comparison to Player.Name
 pl63 = game:GetService("Players")
 if pl63.LocalPlayer.Name == "ninjamaster84321" then
    pl63.LocalPlayer:Kick("Banned permenantly for exploiting.")
@@ -132,11 +132,10 @@ local SmoothSlider = RecoilTab:CreateSlider({
 })
 
 -- ==================== ESP TAB ====================
-local tracerStartPos = "bottom"  -- default
+local tracerStartPos = "bottom"
 local otherTab = Window:CreateTab("👁️ Esp", nil)
 local Section = otherTab:CreateSection("Main")
 
--- Global settings table – the drawing loop reads these every frame
 _G.ESP_SETTINGS = {
     MainEnabled = false,
     Tracers = true,
@@ -282,7 +281,6 @@ end
 
 setupESP()
 
--- UI Controls
 local MainESPToggle = otherTab:CreateToggle({
    Name = "ESP",
    CurrentValue = false,
@@ -334,18 +332,16 @@ local HealthToggle = otherTab:CreateToggle({
 -- ==================== Viewmodel ESP & Skeletons ====================
 local ViewmodelSection = otherTab:CreateSection("Viewmodel ESP")
 
--- FIX: Ensure the toggle actually activates skeletons
 local SkeletonsToggle = otherTab:CreateToggle({
    Name = "Skeletons",
    CurrentValue = false,
    Callback = function(Value)
       _G.espSkeletons = Value
-      _G.ESP_ENABLED = Value          -- also show the box when skeletons are on
+      _G.ESP_ENABLED = Value
       _G.ESP_SETTINGS.Skeletons = Value
    end,
 })
 
--- Viewmodel ESP
 local cloneref_support = cloneref ~= nil
 local gethui_support = gethui ~= nil
 local runservice = cloneref_support and cloneref(game:GetService("RunService")) or game:GetService("RunService")
@@ -550,20 +546,16 @@ local ESPColorPicker = otherTab:CreateColorPicker({
    Color = _G.ESPColor,
    Callback = function(Value)
       _G.ESPColor = Value
-      -- FIX: Update the global setting so new players get the right colour
       _G.ESP_SETTINGS.Color = Value
-      -- Update drawing-based ESP boxes and tracers
       for _, ui in pairs(_G.ESP_Table) do
          if ui.Box then ui.Box.Color = Value end
          if ui.Tracer then ui.Tracer.Color = Value end
       end
-      -- Update skeleton lines
       for _, skel in pairs(_G.skeleton_list) do
          for _, line in ipairs(skel.lines) do
             line.Color = Value
          end
       end
-      -- Update viewmodel ESP box strokes
       for _, data in pairs(_G.esp_list) do
          data.box.UIStroke.Color = Value
       end
@@ -890,7 +882,26 @@ local AimbotSettings = {
     FOVCircle = nil,
     Connection = nil,
     WasRMBPressed = false,
+    AlwaysOn = false,
+    UseCameraAim = false,
 }
+
+-- Mode indicator text (Drawing)
+local AimbotModeText = Drawing.new("Text")
+AimbotModeText.Text = ""
+AimbotModeText.Size = 18
+AimbotModeText.Center = true
+AimbotModeText.Outline = true
+AimbotModeText.Color = Color3.new(1, 1, 1)
+AimbotModeText.Visible = false
+AimbotModeText.Position = Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, 50)
+
+local function updateAimbotIndicator()
+    local mode = AimbotSettings.AlwaysOn and "Always Active" or "Hold RMB"
+    local method = AimbotSettings.UseCameraAim and " (Camera)" or " (Mouse)"
+    AimbotModeText.Text = "Aimbot: " .. mode .. method
+    AimbotModeText.Position = Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, 50)
+end
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -929,8 +940,9 @@ local function getClosestPartToCenter(partName)
     local center = Camera.ViewportSize / 2
     local bestDist = AimbotSettings.FOV
     local bestTarget = nil
+    local bestWorldPos = nil
     local viewmodels = workspace:FindFirstChild("Viewmodels")
-    if not viewmodels then return nil end
+    if not viewmodels then return nil, nil end
 
     for _, model in ipairs(viewmodels:GetChildren()) do
         if not model:IsA("Model") or isLocalViewmodel(model) then continue end
@@ -948,19 +960,24 @@ local function getClosestPartToCenter(partName)
         if dist < bestDist then
             bestDist = dist
             bestTarget = screenPos
+            bestWorldPos = partPos
         end
     end
-    return bestTarget
+    return bestTarget, bestWorldPos
 end
 
 local function aimbotLoop()
     local RunService = game:GetService("RunService")
     local UIS = game:GetService("UserInputService")
+    local Camera = workspace.CurrentCamera
 
     AimbotSettings.Connection = RunService.RenderStepped:Connect(function(dt)
         if not AimbotSettings.Enabled then return end
         
         local rmbPressed = UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+        if AimbotSettings.AlwaysOn then
+            rmbPressed = true
+        end
         if not rmbPressed then
             AimbotSettings.WasRMBPressed = false
             AimbotSettings.RandomPart = nil
@@ -977,16 +994,23 @@ local function aimbotLoop()
         end
 
         local currentPart = (AimbotSettings.AimPart == "Random" and AimbotSettings.RandomPart) or AimbotSettings.AimPart
-        local target = getClosestPartToCenter(currentPart)
-        if not target then return end
+        local screenTarget, worldTarget = getClosestPartToCenter(currentPart)
+        if not screenTarget then return end
 
-        local center = workspace.CurrentCamera.ViewportSize / 2
-        local delta = target - center
-
+        local center = Camera.ViewportSize / 2
         local smoothness = AimbotSettings.Smoothness
         local factor = (smoothness <= 0) and 1 or math.clamp(1 - (smoothness / 10), 0.05, 1)
 
-        mousemoverel(delta.X * factor, delta.Y * factor)
+        if AimbotSettings.UseCameraAim and worldTarget then
+            -- Silent camera rotation
+            local desiredLook = CFrame.lookAt(Camera.CFrame.Position, worldTarget)
+            local newCF = Camera.CFrame:Lerp(desiredLook, factor)
+            Camera.CFrame = newCF
+        else
+            -- Original mouse movement
+            local delta = screenTarget - center
+            mousemoverel(delta.X * factor, delta.Y * factor)
+        end
     end)
 end
 
@@ -1019,6 +1043,8 @@ local AimbotToggle = CombatTab:CreateToggle({
                 AimbotSettings.FOVCircle.Radius = AimbotSettings.FOV
             end
             AimbotSettings.FOVCircle.Visible = true
+            AimbotModeText.Visible = true
+            updateAimbotIndicator()
         else
             if AimbotSettings.Connection then
                 AimbotSettings.Connection:Disconnect()
@@ -1029,7 +1055,26 @@ local AimbotToggle = CombatTab:CreateToggle({
             end
             AimbotSettings.WasRMBPressed = false
             AimbotSettings.RandomPart = nil
+            AimbotModeText.Visible = false
         end
+    end,
+})
+
+local AlwaysOnToggle = CombatTab:CreateToggle({
+    Name = "Always On",
+    CurrentValue = false,
+    Callback = function(Value)
+        AimbotSettings.AlwaysOn = Value
+        updateAimbotIndicator()
+    end,
+})
+
+local CameraAimToggle = CombatTab:CreateToggle({
+    Name = "Camera Aim (Silent)",
+    CurrentValue = false,
+    Callback = function(Value)
+        AimbotSettings.UseCameraAim = Value
+        updateAimbotIndicator()
     end,
 })
 
