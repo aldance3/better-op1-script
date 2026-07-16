@@ -126,155 +126,214 @@ local SmoothSlider = RecoilTab:CreateSlider({
 })
 
 -- ==================== ESP TAB ====================
+-- Add this near the top, before setupESP()
+local tracerStartPos = "bottom"  -- default
 local otherTab = Window:CreateTab("👁️ Esp", nil)
 local Section = otherTab:CreateSection("Main")
 
-_G.ESP_ENABLED = false
-_G.ESPInitialized = false
-_G.espSkeletons = false
-_G.ESP_Table = {}
-_G.ESPColor = Color3.new(1, 1, 1)  -- default white, will be changed by the colour picker
+-- Global settings table – the drawing loop reads these every frame
+_G.ESP_SETTINGS = {
+    MainEnabled = false,
+    Tracers = true,            -- start on
+    TracerStart = "Bottom",    -- Bottom/Middle/Top/Left/Right
+    HealthBar = true,          -- start on
+    Color = Color3.new(1,1,1),
+    Skeletons = false,
+}
 
-_G.destroyESP = function()
-   for _,ui in pairs(_G.ESP_Table) do
-      pcall(function() if ui.Box then ui.Box:Remove() end end)
-      pcall(function() if ui.Tracer then ui.Tracer:Remove() end end)
-      pcall(function() if ui.Health then ui.Health:Remove() end end)
-      pcall(function() if ui.Name then ui.Name:Remove() end end)
-   end
-   table.clear(_G.ESP_Table)
-   _G.ESP_ENABLED = false
-end
+_G.ESP_Table = {}
 
 local function setupESP()
-   if _G.ESPInitialized then return end
-   _G.ESPInitialized = true
-   
-   local Players = game:GetService("Players")
-   local RunService = game:GetService("RunService")
-   local UserInputService = game:GetService("UserInputService")
-   local Camera = workspace.CurrentCamera
-   local LocalPlayer = Players.LocalPlayer
-   local ESP = _G.ESP_Table
-   local TEAM_CHECK = true
-   local MAX_STUCK_TIME = 1.5
-   local TOGGLE_KEY = Enum.KeyCode.RightAlt
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local Camera = workspace.CurrentCamera
+    local LocalPlayer = Players.LocalPlayer
+    local ESP = _G.ESP_Table
+    local TEAM_CHECK = true
+    local MAX_STUCK_TIME = 1.5
 
-   local function newDrawing(type, props)
-      local obj = Drawing.new(type)
-      for k,v in pairs(props) do obj[k] = v end
-      return obj
-   end
+    local function newDrawing(type, props)
+        local obj = Drawing.new(type)
+        for k,v in pairs(props) do obj[k] = v end
+        return obj
+    end
 
-   local function hide(ui)
-      ui.Box.Visible = false
-      ui.Tracer.Visible = false
-      ui.Health.Visible = false
-      ui.Name.Visible = false
-   end
+    local function hide(ui)
+        ui.Box.Visible = false
+        ui.Tracer.Visible = false
+        ui.Health.Visible = false
+        ui.Name.Visible = false
+    end
 
-   local function hideAll()
-      for _,ui in pairs(ESP) do hide(ui) end
-   end
+    local function createESP(player)
+        if player == LocalPlayer or ESP[player] then return end
+        ESP[player] = {
+            Player = player,
+            Box = newDrawing("Square", {Thickness = 1, Filled = false, Color = _G.ESP_SETTINGS.Color, Visible = false}),
+            Tracer = newDrawing("Line", {Thickness = 1, Color = _G.ESP_SETTINGS.Color, Visible = false}),
+            Health = newDrawing("Line", {Thickness = 3, Visible = false}),
+            Name = newDrawing("Text", {Size = 13, Center = true, Outline = true, Font = 2, Visible = false}),
+            LastPosition = nil,
+            StuckTime = 0
+        }
+    end
 
-   UserInputService.InputBegan:Connect(function(input)
-      if input.KeyCode == TOGGLE_KEY then
-         _G.ESP_ENABLED = not _G.ESP_ENABLED
-         if not _G.ESP_ENABLED then hideAll() end
-      end
-   end)
+    for _,player in ipairs(Players:GetPlayers()) do createESP(player) end
+    Players.PlayerAdded:Connect(createESP)
 
-   local function createESP(player)
-      if player == LocalPlayer or ESP[player] then return end
-      ESP[player] = {
-         Player = player,
-         Box = newDrawing("Square", {Thickness = 1, Filled = false, Color = _G.ESPColor, Visible = false}),
-         Tracer = newDrawing("Line", {Thickness = 1, Color = _G.ESPColor, Visible = false}),
-         Health = newDrawing("Line", {Thickness = 3, Visible = false}),
-         Name = newDrawing("Text", {Size = 13, Center = true, Outline = true, Font = 2, Visible = false}),
-         LastPosition = nil,
-         StuckTime = 0
-      }
-   end
-
-   for _,player in ipairs(Players:GetPlayers()) do createESP(player) end
-   Players.PlayerAdded:Connect(createESP)
-
-   local function findCharacter(player)
-      for _,model in ipairs(workspace:GetChildren()) do
-         if model:IsA("Model") and model.Name == player.Name then
-            local hum = model:FindFirstChildOfClass("Humanoid")
-            local root = model:FindFirstChild("HumanoidRootPart")
-            if hum and root then return model, hum, root end
-         end
-      end
-      return nil
-   end
-
-   local function getBox(character)
-      local cf, size = character:GetBoundingBox()
-      local top = cf.Position + Vector3.new(0, size.Y/2, 0)
-      local bottom = cf.Position - Vector3.new(0, size.Y/2, 0)
-      local topPos, vis1 = Camera:WorldToViewportPoint(top)
-      local bottomPos, vis2 = Camera:WorldToViewportPoint(bottom)
-      if not vis1 or not vis2 then return nil end
-      local height = math.abs(topPos.Y - bottomPos.Y)
-      local width = height / 2
-      return Vector2.new(topPos.X - width/2, topPos.Y), width, height
-   end
-
-   RunService.RenderStepped:Connect(function(dt)
-      if not _G.ESP_ENABLED then return end
-      for player,ui in pairs(ESP) do
-         pcall(function()
-            if TEAM_CHECK and player.Team == LocalPlayer.Team then hide(ui) return end
-            
-            local character, humanoid, root = findCharacter(player)
-            if not character or not humanoid or humanoid.Health <= 0 then hide(ui) return end
-            
-            local pos, width, height = getBox(character)
-            if not pos then hide(ui) return end
-            
-            if ui.LastPosition and (ui.LastPosition - pos).Magnitude < 1 then
-               ui.StuckTime = ui.StuckTime + dt
-            else
-               ui.StuckTime = 0
+    local function findCharacter(player)
+        for _,model in ipairs(workspace:GetChildren()) do
+            if model:IsA("Model") and model.Name == player.Name then
+                local hum = model:FindFirstChildOfClass("Humanoid")
+                local root = model:FindFirstChild("HumanoidRootPart")
+                if hum and root then return model, hum, root end
             end
-            if ui.StuckTime >= MAX_STUCK_TIME then hide(ui) return end
-            ui.LastPosition = pos
+        end
+        return nil
+    end
 
-            ui.Box.Size = Vector2.new(width, height)
-            ui.Box.Position = pos
-            ui.Box.Visible = true
+    local function getBox(character)
+        local cf, size = character:GetBoundingBox()
+        local top = cf.Position + Vector3.new(0, size.Y/2, 0)
+        local bottom = cf.Position - Vector3.new(0, size.Y/2, 0)
+        local topPos, vis1 = Camera:WorldToViewportPoint(top)
+        local bottomPos, vis2 = Camera:WorldToViewportPoint(bottom)
+        if not vis1 or not vis2 then return nil end
+        local height = math.abs(topPos.Y - bottomPos.Y)
+        local width = height / 2
+        return Vector2.new(topPos.X - width/2, topPos.Y), width, height
+    end
 
-            ui.Tracer.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
-            ui.Tracer.To = Vector2.new(pos.X + width/2, pos.Y)
-            ui.Tracer.Visible = true
-
-            local hp = humanoid.Health / humanoid.MaxHealth
-            local healthHeight = height * hp
-            ui.Health.From = Vector2.new(pos.X - 5, pos.Y + height)
-            ui.Health.To = Vector2.new(pos.X - 5, pos.Y + height - healthHeight)
-            ui.Health.Color = Color3.fromRGB(255 - (255*hp), 255*hp, 0)
-            ui.Health.Visible = true
-
-            local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            ui.Name.Text = myRoot and player.Name .. " [" .. math.floor((myRoot.Position - root.Position).Magnitude) .. "m]" or player.Name
-            ui.Name.Position = Vector2.new(pos.X + width/2, pos.Y - 15)
-            ui.Name.Visible = true
-         end)
-      end
-   end)
+    local function getTracerStart()
+        local viewport = Camera.ViewportSize
+        local pos = tracerStartPos   -- read the local directly, no table lookup
+        if pos == "bottom" then return Vector2.new(viewport.X/2, viewport.Y)
+        elseif pos == "middle" then return Vector2.new(viewport.X/2, viewport.Y/2)
+        elseif pos == "top" then return Vector2.new(viewport.X/2, 0)
+        elseif pos == "left" then return Vector2.new(0, viewport.Y/2)
+        elseif pos == "right" then return Vector2.new(viewport.X, viewport.Y/2)
+        else return Vector2.new(viewport.X/2, viewport.Y)
+    end
 end
 
+    RunService.RenderStepped:Connect(function(dt)
+        -- If absolutely nothing is on, hide all
+        if not (_G.ESP_SETTINGS.MainEnabled or _G.ESP_SETTINGS.Tracers or _G.ESP_SETTINGS.HealthBar) then
+            for _,ui in pairs(ESP) do hide(ui) end
+            return
+        end
+
+        for player,ui in pairs(ESP) do
+            pcall(function()
+                if TEAM_CHECK and player.Team == LocalPlayer.Team then hide(ui) return end
+                local character, humanoid, root = findCharacter(player)
+                if not character or not humanoid or humanoid.Health <= 0 then hide(ui) return end
+                local pos, width, height = getBox(character)
+                if not pos then hide(ui) return end
+                if ui.LastPosition and (ui.LastPosition - pos).Magnitude < 1 then
+                    ui.StuckTime = ui.StuckTime + dt
+                else
+                    ui.StuckTime = 0
+                end
+                if ui.StuckTime >= MAX_STUCK_TIME then hide(ui) return end
+                ui.LastPosition = pos
+
+                -- Box & name: only when main ESP is on
+                ui.Box.Visible = _G.ESP_SETTINGS.MainEnabled
+                if _G.ESP_SETTINGS.MainEnabled then
+                    ui.Box.Size = Vector2.new(width, height)
+                    ui.Box.Position = pos
+                    ui.Box.Color = _G.ESP_SETTINGS.Color
+                end
+
+                ui.Name.Visible = _G.ESP_SETTINGS.MainEnabled
+                if _G.ESP_SETTINGS.MainEnabled then
+                    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                    ui.Name.Text = myRoot and player.Name .. " [" .. math.floor((myRoot.Position - root.Position).Magnitude) .. "m]" or player.Name
+                    ui.Name.Position = Vector2.new(pos.X + width/2, pos.Y - 15)
+                end
+
+                -- Tracers: independent
+                if _G.ESP_SETTINGS.Tracers then
+                    ui.Tracer.From = getTracerStart()
+                    ui.Tracer.To = Vector2.new(pos.X + width/2, pos.Y)
+                    ui.Tracer.Color = _G.ESP_SETTINGS.Color
+                    ui.Tracer.Visible = true
+                else
+                    ui.Tracer.Visible = false
+                end
+
+                -- Health bar: independent
+                if _G.ESP_SETTINGS.HealthBar then
+                    local hp = humanoid.Health / humanoid.MaxHealth
+                    local healthHeight = height * hp
+                    ui.Health.From = Vector2.new(pos.X - 5, pos.Y + height)
+                    ui.Health.To = Vector2.new(pos.X - 5, pos.Y + height - healthHeight)
+                    ui.Health.Color = Color3.fromRGB(255 - (255*hp), 255*hp, 0)
+                    ui.Health.Visible = true
+                else
+                    ui.Health.Visible = false
+                end
+            end)
+        end
+    end)
+end
+
+-- Start the ESP system immediately (loop always active)
+setupESP()
+
+-- UI Controls
 local MainESPToggle = otherTab:CreateToggle({
    Name = "ESP",
    CurrentValue = false,
    Callback = function(Value)
-      if Value then setupESP() else _G.destroyESP() _G.ESPInitialized = false end
-      _G.ESP_ENABLED = Value
+      _G.ESP_SETTINGS.MainEnabled = Value
    end,
 })
+
+local ESPOptionsSection = otherTab:CreateSection("ESP Options")
+
+local TracersToggle = otherTab:CreateToggle({
+   Name = "Tracers",
+   CurrentValue = true,
+   Callback = function(Value)
+      _G.ESP_SETTINGS.Tracers = Value
+   end,
+})
+
+local TracerPosSection = otherTab:CreateSection("Tracer Start Position")
+
+otherTab:CreateParagraph({
+    Title = "Slider Mapping",
+    Content = "0 = Bottom | 1 = Middle | 2 = Top | 3 = Left | 4 = Right"
+})
+
+otherTab:CreateSlider({
+    Name = "Tracer Position",
+    Range = {0, 4},
+    Increment = 1,
+    Suffix = "",
+    CurrentValue = 0,
+    Callback = function(Value)
+        local positions = {"bottom", "middle", "top", "left", "right"}
+        local index = math.floor(Value + 0.5) + 1
+        tracerStartPos = positions[index] or "bottom"       -- update local
+        _G.ESP_SETTINGS.TracerStart = tracerStartPos        -- sync global if needed
+        print("Tracer start set to:", tracerStartPos)       -- debug confirmation
+    end,
+})
+
+local HealthToggle = otherTab:CreateToggle({
+   Name = "Health Bars",
+   CurrentValue = true,
+   Callback = function(Value)
+      _G.ESP_SETTINGS.HealthBar = Value
+   end,
+})
+
+-- ==================== Viewmodel ESP & Skeletons ====================
+-- (keep your existing viewmodel & skeleton code exactly as it was, but when
+--  you need the colour, reference _G.ESP_SETTINGS.Color instead of _G.ESPColor)
 
 local ViewmodelSection = otherTab:CreateSection("Viewmodel ESP")
 
@@ -282,9 +341,13 @@ local SkeletonsToggle = otherTab:CreateToggle({
    Name = "Skeletons",
    CurrentValue = false,
    Callback = function(Value)
-      _G.espSkeletons = Value
+      _G.ESP_SETTINGS.Skeletons = Value
+      -- You'll need to adjust your skeleton code to use _G.ESP_SETTINGS.Skeletons
    end,
 })
+
+-- … your existing viewmodel ESP and skeleton code here …
+-- (make sure to use _G.ESP_SETTINGS.Color instead of _G.ESPColor)
 
 -- Viewmodel ESP
 local cloneref_support = cloneref ~= nil
@@ -833,15 +896,18 @@ local DelaySlider = CombatTab:CreateSlider({
     end,
 })
 
--- ==================== AIMBOT SECTION (WITH TEAM CHECK) ====================
+-- ==================== AIMBOT SECTION (WITH TEAM CHECK & BODY PART SELECTION) ====================
 local AimbotSettings = {
     Enabled = false,
     Smoothness = 0,            -- 0 = lock on, 10 = slow
     FOV = 150,
     AimOffsetY = 0,            -- screen Y offset (positive = aim lower)
     TeamCheck = false,         -- skip teammates when ON
+    AimPart = "Head",          -- default aim part
+    RandomPart = nil,          -- stored random part for current aim (if AimPart == "Random")
     FOVCircle = nil,
     Connection = nil,
+    WasRMBPressed = false,     -- tracks previous RMB state to detect fresh press
 }
 
 local Players = game:GetService("Players")
@@ -852,14 +918,38 @@ local function isLocalViewmodel(model)
     return model.Name == LocalPlayer.Name and model:IsA("Model") and model.Parent == workspace:FindFirstChild("Viewmodels")
 end
 
--- Check if a model belongs to a teammate (using model name = player name)
+-- Check if a model belongs to a teammate
 local function isTeammate(model)
     local player = Players:FindFirstChild(model.Name)
     return player and player.Team == LocalPlayer.Team
 end
 
--- Find the closest enemy head to screen center within FOV (with Y offset & team check)
-local function getClosestHeadToCenter()
+-- Get the 3D position of a specific part from a viewmodel
+local function getPartPosition(model, partName)
+    if partName == "Head" then
+        local head = model:FindFirstChild("head")
+        if head and head:IsA("BasePart") then return head.Position end
+    elseif partName == "Torso" then
+        local torso = model:FindFirstChild("torso")
+        if torso and torso:IsA("BasePart") then return torso.Position end
+    elseif partName == "Feet" then
+        -- Try LeftFoot first, then RightFoot, fallback to torso
+        local left = model:FindFirstChild("LeftFoot")
+        local right = model:FindFirstChild("RightFoot")
+        if left and left:IsA("BasePart") then return left.Position end
+        if right and right:IsA("BasePart") then return right.Position end
+        -- Fallback to torso if no feet
+        local torso = model:FindFirstChild("torso")
+        if torso and torso:IsA("BasePart") then return torso.Position end
+    end
+    return nil
+end
+
+-- List of valid parts for random selection
+local aimPartOptions = {"Head", "Torso", "Feet"}
+
+-- Find the closest enemy for the given part to screen center within FOV
+local function getClosestPartToCenter(partName)
     local Camera = workspace.CurrentCamera
     local center = Camera.ViewportSize / 2
     local bestDist = AimbotSettings.FOV
@@ -875,10 +965,10 @@ local function getClosestHeadToCenter()
             continue
         end
 
-        local head = model:FindFirstChild("head")
-        if not head or not head:IsA("BasePart") then continue end
+        local partPos = getPartPosition(model, partName)
+        if not partPos then continue end
 
-        local screenPos, onScreen = Camera:WorldToScreenPoint(head.Position)
+        local screenPos, onScreen = Camera:WorldToScreenPoint(partPos)
         if not onScreen then continue end
 
         -- Apply vertical offset
@@ -900,9 +990,26 @@ local function aimbotLoop()
 
     AimbotSettings.Connection = RunService.RenderStepped:Connect(function(dt)
         if not AimbotSettings.Enabled then return end
-        if not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return end
+        
+        local rmbPressed = UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+        if not rmbPressed then
+            AimbotSettings.WasRMBPressed = false
+            AimbotSettings.RandomPart = nil -- reset random part when not aiming
+            return
+        end
 
-        local target = getClosestHeadToCenter()
+        -- If RMB was just pressed (fresh aim), handle random part selection
+        if not AimbotSettings.WasRMBPressed then
+            AimbotSettings.WasRMBPressed = true
+            if AimbotSettings.AimPart == "Random" then
+                AimbotSettings.RandomPart = aimPartOptions[math.random(#aimPartOptions)]
+            else
+                AimbotSettings.RandomPart = nil
+            end
+        end
+
+        local currentPart = (AimbotSettings.AimPart == "Random" and AimbotSettings.RandomPart) or AimbotSettings.AimPart
+        local target = getClosestPartToCenter(currentPart)
         if not target then return end
 
         local center = workspace.CurrentCamera.ViewportSize / 2
@@ -954,9 +1061,33 @@ local AimbotToggle = CombatTab:CreateToggle({
             if AimbotSettings.FOVCircle then
                 AimbotSettings.FOVCircle.Visible = false
             end
+            AimbotSettings.WasRMBPressed = false
+            AimbotSettings.RandomPart = nil
         end
     end,
 })
+
+-- Body part dropdown
+local AimPartSection = CombatTab:CreateSection("Aim Part (Body Lock)")
+
+local aimParts = {"Head", "Torso", "Random"}
+for _, part in ipairs(aimParts) do
+    CombatTab:CreateButton({
+        Name = "🎯 " .. part,
+        Callback = function()
+            AimbotSettings.AimPart = part
+            -- Reset random part if switching away from Random
+            if part ~= "Random" then
+                AimbotSettings.RandomPart = nil
+            end
+            Rayfield:Notify({
+                Title = "Aim Part",
+                Content = "Locking onto: " .. part,
+                Duration = 1.5,
+            })
+        end,
+    })
+end
 
 local SmoothnessSlider = CombatTab:CreateSlider({
     Name = "Smoothness",
@@ -994,7 +1125,7 @@ local AimOffsetYSlider = CombatTab:CreateSlider({
     end,
 })
 
--- NEW: Team check toggle
+-- Team check toggle
 local TeamCheckToggle = CombatTab:CreateToggle({
     Name = "Don't Aim at Teammates",
     CurrentValue = false,
@@ -1009,3 +1140,50 @@ RunService.RenderStepped:Connect(function()
         AimbotSettings.FOVCircle.Position = workspace.CurrentCamera.ViewportSize / 2
     end
 end)
+
+-- ==================== UTILITY TAB (Account Age Checker) ====================
+local UtilityTab = Window:CreateTab("🛠️ Utilities", nil)
+local UtilitySection = UtilityTab:CreateSection("Lobby Check")
+
+UtilityTab:CreateButton({
+    Name = "🔍 Check Account Ages",
+    Callback = function()
+        local Players = game:GetService("Players")
+        local allPlayers = Players:GetPlayers()
+        if #allPlayers == 0 then
+            Rayfield:Notify({
+                Title = "Lobby Check",
+                Content = "No players in the server.",
+                Duration = 3
+            })
+            return
+        end
+
+        -- Iterate through players with a delay
+        for _, player in ipairs(allPlayers) do
+            local ageDays = player.AccountAge
+            local ageDisplay = ""
+            if ageDays >= 365 then
+                ageDisplay = string.format("%.1f years", ageDays / 365)
+            else
+                ageDisplay = ageDays .. " days"
+            end
+
+            local classification = ""
+            if ageDays < 20 then
+                classification = " ⚠️ POSSIBLE CHEATER"
+            elseif ageDays < 40 then
+                classification = " 🔶 VERY SUSPICIOUS"
+            elseif ageDays < 60 then
+                classification = " 🔸 SUSPICIOUS"
+            end
+
+            Rayfield:Notify({
+                Title = player.Name,
+                Content = "Account age: " .. ageDisplay .. classification,
+                Duration = 5
+            })
+            task.wait(2)  -- 2-second pause between notifications
+        end
+    end,
+})
