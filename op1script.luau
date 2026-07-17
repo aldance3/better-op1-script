@@ -1232,6 +1232,53 @@ end)
 local UtilityTab = Window:CreateTab("🛠️ Utilities", nil)
 local UtilitySection = UtilityTab:CreateSection("Lobby Check")
 
+-- ==================== BREAKABLE TRANSPARENCY ====================
+local BreakableSection = UtilityTab:CreateSection("Breakable Transparency")
+
+UtilityTab:CreateParagraph({
+    Title = "⚠️ Performance Warning",
+    Content = "Applying transparency to many breakable objects may cause a brief lag spike."
+})
+
+local transparencyValue = 50  -- default percentage
+
+local TransparencySlider = UtilityTab:CreateSlider({
+    Name = "Transparency",
+    Range = {0, 100},
+    Increment = 1,
+    Suffix = "%",
+    CurrentValue = 50,
+    Callback = function(Value)
+        transparencyValue = Value
+    end,
+})
+
+UtilityTab:CreateButton({
+    Name = "Apply Transparency to Breakables",
+    Callback = function()
+        Rayfield:Notify({
+            Title = "Applying...",
+            Content = "Setting breakable transparency to " .. transparencyValue .. "%. This may cause slight lag.",
+            Duration = 3
+        })
+
+        local allDescendants = workspace:GetDescendants()
+        local count = 0
+        for _, obj in ipairs(allDescendants) do
+            if obj:IsA("BasePart") and obj:FindFirstChild("Breakable") then
+                obj.Transparency = transparencyValue / 100
+                count = count + 1
+            end
+        end
+
+        Rayfield:Notify({
+            Title = "Done",
+            Content = "Updated " .. count .. " breakable objects.",
+            Duration = 3
+        })
+    end,
+})
+
 UtilityTab:CreateButton({
     Name = "🔍 Check Account Ages",
     Callback = function()
