@@ -1232,6 +1232,48 @@ end)
 local UtilityTab = Window:CreateTab("🛠️ Utilities", nil)
 local UtilitySection = UtilityTab:CreateSection("Lobby Check")
 
+UtilityTab:CreateButton({
+    Name = "🔍 Check Account Ages",
+    Callback = function()
+        local Players = game:GetService("Players")
+        local allPlayers = Players:GetPlayers()
+        if #allPlayers == 0 then
+            Rayfield:Notify({
+                Title = "Lobby Check",
+                Content = "No players in the server.",
+                Duration = 3
+            })
+            return
+        end
+
+        for _, player in ipairs(allPlayers) do
+            local ageDays = player.AccountAge
+            local ageDisplay = ""
+            if ageDays >= 365 then
+                ageDisplay = string.format("%.1f years", ageDays / 365)
+            else
+                ageDisplay = ageDays .. " days"
+            end
+
+            local classification = ""
+            if ageDays < 20 then
+                classification = " ⚠️ POSSIBLE CHEATER"
+            elseif ageDays < 40 then
+                classification = " 🔶 VERY SUSPICIOUS"
+            elseif ageDays < 60 then
+                classification = " 🔸 SUSPICIOUS"
+            end
+
+            Rayfield:Notify({
+                Title = player.Name,
+                Content = "Account age: " .. ageDisplay .. classification,
+                Duration = 5
+            })
+            task.wait(2)
+        end
+    end,
+})
+
 -- ==================== BREAKABLE TRANSPARENCY ====================
 local BreakableSection = UtilityTab:CreateSection("Breakable Transparency")
 
@@ -1276,47 +1318,5 @@ UtilityTab:CreateButton({
             Content = "Updated " .. count .. " breakable objects.",
             Duration = 3
         })
-    end,
-})
-
-UtilityTab:CreateButton({
-    Name = "🔍 Check Account Ages",
-    Callback = function()
-        local Players = game:GetService("Players")
-        local allPlayers = Players:GetPlayers()
-        if #allPlayers == 0 then
-            Rayfield:Notify({
-                Title = "Lobby Check",
-                Content = "No players in the server.",
-                Duration = 3
-            })
-            return
-        end
-
-        for _, player in ipairs(allPlayers) do
-            local ageDays = player.AccountAge
-            local ageDisplay = ""
-            if ageDays >= 365 then
-                ageDisplay = string.format("%.1f years", ageDays / 365)
-            else
-                ageDisplay = ageDays .. " days"
-            end
-
-            local classification = ""
-            if ageDays < 20 then
-                classification = " ⚠️ POSSIBLE CHEATER"
-            elseif ageDays < 40 then
-                classification = " 🔶 VERY SUSPICIOUS"
-            elseif ageDays < 60 then
-                classification = " 🔸 SUSPICIOUS"
-            end
-
-            Rayfield:Notify({
-                Title = player.Name,
-                Content = "Account age: " .. ageDisplay .. classification,
-                Duration = 5
-            })
-            task.wait(2)
-        end
     end,
 })
