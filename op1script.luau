@@ -1,6 +1,6 @@
 -- ==== Initialization ====
 local RunService = game:GetService("RunService")
-local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua'))()
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 _G.ESPColor = _G.ESPColor or Color3.new(1, 1, 1)
 _G.espSkeletons = false
 _G.ESP_ENABLED = false
