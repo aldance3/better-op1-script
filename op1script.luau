@@ -571,7 +571,6 @@ OptimizationsTab:CreateParagraph({
     Content = "Optimize will break scoped weapons!\nUse at your own risk."
 })
 
--- Brightness slider (0-4)
 local fullbrightBrightness = 2
 
 OptimizationsTab:CreateSlider({
@@ -684,6 +683,9 @@ OptimizationsTab:CreateButton({
 local CombatTab = Window:CreateTab("⚔️ Combat", nil)
 local CombatSection = CombatTab:CreateSection("Triggerbot")
 
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
 local TriggerbotSettings = {
     Enabled = false,
     TeamCheck = false,
@@ -696,6 +698,8 @@ local TriggerbotSettings = {
     IsPressed = false,
     LastClick = 0,
     ClickInterval = 0.05,
+    VisibilityCheck = false,
+    AllowSoftVisible = false,
 }
 
 local function findCharacter(player)
@@ -703,9 +707,7 @@ local function findCharacter(player)
         if model:IsA("Model") and model.Name == player.Name then
             local hum = model:FindFirstChildOfClass("Humanoid")
             local root = model:FindFirstChild("HumanoidRootPart")
-            if hum and root then
-                return model, hum, root
-            end
+            if hum and root then return model, hum, root end
         end
     end
     return nil
@@ -732,6 +734,71 @@ local function pointInBox(point, boxPos, boxWidth, boxHeight)
        and point.Y <= boxPos.Y + boxHeight + padding
 end
 
+-- Visibility check using workspace character's HumanoidRootPart
+-- Visibility check using workspace character's HumanoidRootPart
+local function isPlayerVisible(targetPlayer)
+    local localChar = LocalPlayer.Character
+    if not localChar then return false end
+    
+    local targetChar, _, rootPart = findCharacter(targetPlayer)
+    if not targetChar or not rootPart then return false end
+
+    local camera = workspace.CurrentCamera
+    
+    local rayOrigin = camera.CFrame.Position
+    local rayDirection = (rootPart.Position - rayOrigin)
+    local rayLength = rayDirection.Magnitude
+    local rayDir = rayDirection.Unit
+
+    local filterList = {}
+    if localChar then
+        table.insert(filterList, localChar)
+    end
+    
+    local viewmodels = workspace:FindFirstChild("Viewmodels")
+    if viewmodels then
+        local localViewmodel = viewmodels:FindFirstChild("LocalViewmodel")
+        if localViewmodel then
+            table.insert(filterList, localViewmodel)
+        end
+    end
+
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+    rayParams.FilterDescendantsInstances = filterList
+
+    local rayResult = workspace:Raycast(rayOrigin, rayDir * rayLength, rayParams)
+    
+    -- No hit = clear line of sight
+    if not rayResult then
+        return true
+    end
+    
+    local hitPart = rayResult.Instance
+    
+    -- Hit the target character directly
+    if hitPart:IsDescendantOf(targetChar) then
+        return true
+    end
+    
+    -- Transparency > 0.2 = glass (visible)
+    if hitPart.Transparency > 0.2 then
+        return true
+    end
+    
+    -- CanCollide off = soft visible
+    if hitPart.CanCollide == false then
+        return "soft_visible"
+    end
+    
+    -- Breakable = soft visible
+    if hitPart:FindFirstChild("Breakable") then
+        return "soft_visible"
+    end
+    
+    return false
+end
+
 local function releaseMouse()
     if TriggerbotSettings.IsPressed then
         mouse1release()
@@ -741,9 +808,7 @@ end
 
 local function triggerbotLoop()
     local UIS = game:GetService("UserInputService")
-    local Players = game:GetService("Players")
     local Camera = workspace.CurrentCamera
-    local LocalPlayer = Players.LocalPlayer
     local RunService = game:GetService("RunService")
 
     TriggerbotSettings.Connection = RunService.RenderStepped:Connect(function(dt)
@@ -781,8 +846,19 @@ local function triggerbotLoop()
             if not boxPos then continue end
 
             if pointInBox(mousePos, boxPos, boxWidth, boxHeight) then
-                validEnemy = true
-                break
+                if TriggerbotSettings.VisibilityCheck then
+                    local vis = isPlayerVisible(player)
+                    if vis == true then
+                        validEnemy = true
+                        break
+                    elseif vis == "soft_visible" and TriggerbotSettings.AllowSoftVisible then
+                        validEnemy = true
+                        break
+                    end
+                else
+                    validEnemy = true
+                    break
+                end
             end
         end
 
@@ -884,8 +960,23 @@ local DelaySlider = CombatTab:CreateSlider({
     end,
 })
 
--- ==================== AIMBOT ====================
--- MODIFICATION: Mobile aim key – detect touch-enabled devices
+local VisibilityCheckToggle = CombatTab:CreateToggle({
+    Name = "Visibility Check",
+    CurrentValue = false,
+    Callback = function(Value)
+        TriggerbotSettings.VisibilityCheck = Value
+    end,
+})
+
+local SoftVisibleToggle = CombatTab:CreateToggle({
+    Name = "Allow Soft Visible",
+    CurrentValue = false,
+    Callback = function(Value)
+        TriggerbotSettings.AllowSoftVisible = Value
+    end,
+})
+
+-- ==================== AIMBOT (Old System – Viewmodels, No Team Check) ====================
 local UserInputService = game:GetService("UserInputService")
 local isMobile = UserInputService.TouchEnabled
 
@@ -894,7 +985,6 @@ local AimbotSettings = {
     Smoothness = 0,
     FOV = 150,
     AimOffsetY = 0,
-    TeamCheck = false,
     AimPart = "Head",
     RandomPart = nil,
     FOVCircle = nil,
@@ -902,10 +992,9 @@ local AimbotSettings = {
     WasRMBPressed = false,
     AlwaysOn = false,
     UseCameraAim = false,
-    MobileScopeActive = false,  -- MODIFICATION: toggle state for mobile scope button
+    MobileScopeActive = false,
 }
 
--- Mode indicator text (Drawing)
 local AimbotModeText = Drawing.new("Text")
 AimbotModeText.Text = ""
 AimbotModeText.Size = 18
@@ -915,7 +1004,6 @@ AimbotModeText.Color = Color3.new(1, 1, 1)
 AimbotModeText.Visible = false
 AimbotModeText.Position = Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, 50)
 
--- MODIFICATION: update indicator to show mobile toggle mode
 local function updateAimbotIndicator()
     local mode
     if AimbotSettings.AlwaysOn then
@@ -930,12 +1018,7 @@ local function updateAimbotIndicator()
     AimbotModeText.Position = Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, 50)
 end
 
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-
--- MODIFICATION: Connect mobile buttons (scope, reload, backpack items)
 if isMobile then
-    -- Helper to deactivate aimbot toggle (used by reload & backpack items)
     local function deactivateAimbotIfActive()
         if AimbotSettings.Enabled and AimbotSettings.MobileScopeActive then
             AimbotSettings.MobileScopeActive = false
@@ -944,7 +1027,6 @@ if isMobile then
         end
     end
 
-    -- Scope button: toggles aimbot on/off
     pcall(function()
         local scopeButton = LocalPlayer:WaitForChild("PlayerGui", 5):WaitForChild("Game", 5):WaitForChild("Right", 5):WaitForChild("Center", 5):WaitForChild("ScopeButton", 5)
         scopeButton.Activated:Connect(function()
@@ -956,22 +1038,18 @@ if isMobile then
         end)
     end)
 
-    -- Reload button: turns aimbot off if active
     pcall(function()
         local reloadButton = LocalPlayer:WaitForChild("PlayerGui", 5):WaitForChild("Game", 5):WaitForChild("Right", 5):WaitForChild("Center", 5):WaitForChild("ReloadButton", 5)
         reloadButton.Activated:Connect(deactivateAimbotIfActive)
     end)
 
-    -- Backpack items: each of the 4 Item buttons turns aimbot off if active
     pcall(function()
         local backpackItems = LocalPlayer:WaitForChild("PlayerGui", 5):WaitForChild("Game", 5):WaitForChild("Right", 5):WaitForChild("Bottom", 5):WaitForChild("BackpackItems", 5)
-        -- Connect existing items
         for _, item in ipairs(backpackItems:GetChildren()) do
             if item:IsA("ImageButton") or item:IsA("TextButton") then
                 item.Activated:Connect(deactivateAimbotIfActive)
             end
         end
-        -- Connect future items (if they are added dynamically)
         backpackItems.ChildAdded:Connect(function(item)
             if item:IsA("ImageButton") or item:IsA("TextButton") then
                 item.Activated:Connect(deactivateAimbotIfActive)
@@ -980,16 +1058,8 @@ if isMobile then
     end)
 end
 
-local function isLocalViewmodel(model)
-    return model.Name == LocalPlayer.Name and model:IsA("Model") and model.Parent == workspace:FindFirstChild("Viewmodels")
-end
-
-local function isTeammate(model)
-    local player = Players:FindFirstChild(model.Name)
-    return player and player.Team == LocalPlayer.Team
-end
-
-local function getPartPosition(model, partName)
+-- Returns the position of a specified aim part on a viewmodel (lowercase part names)
+local function getViewmodelPartPosition(model, partName)
     if partName == "Head" then
         local head = model:FindFirstChild("head")
         if head and head:IsA("BasePart") then return head.Position end
@@ -997,8 +1067,8 @@ local function getPartPosition(model, partName)
         local torso = model:FindFirstChild("torso")
         if torso and torso:IsA("BasePart") then return torso.Position end
     elseif partName == "Feet" then
-        local left = model:FindFirstChild("LeftFoot")
-        local right = model:FindFirstChild("RightFoot")
+        local left = model:FindFirstChild("LeftFoot") or model:FindFirstChild("leftfoot")
+        local right = model:FindFirstChild("RightFoot") or model:FindFirstChild("rightfoot")
         if left and left:IsA("BasePart") then return left.Position end
         if right and right:IsA("BasePart") then return right.Position end
         local torso = model:FindFirstChild("torso")
@@ -1009,6 +1079,7 @@ end
 
 local aimPartOptions = {"Head", "Torso", "Feet"}
 
+-- Old system: aim at viewmodels, no team check
 local function getClosestPartToCenter(partName)
     local Camera = workspace.CurrentCamera
     local center = Camera.ViewportSize / 2
@@ -1019,10 +1090,11 @@ local function getClosestPartToCenter(partName)
     if not viewmodels then return nil, nil end
 
     for _, model in ipairs(viewmodels:GetChildren()) do
-        if not model:IsA("Model") or isLocalViewmodel(model) then continue end
-        if AimbotSettings.TeamCheck and isTeammate(model) then continue end
+        if not model:IsA("Model") then continue end
+        -- Ignore local viewmodel
+        if model.Name == "LocalViewmodel" then continue end
 
-        local partPos = getPartPosition(model, partName)
+        local partPos = getViewmodelPartPosition(model, partName)
         if not partPos then continue end
 
         local screenPos, onScreen = Camera:WorldToScreenPoint(partPos)
@@ -1041,14 +1113,12 @@ local function getClosestPartToCenter(partName)
 end
 
 local function aimbotLoop()
-    local RunService = game:GetService("RunService")
     local UIS = game:GetService("UserInputService")
     local Camera = workspace.CurrentCamera
 
     AimbotSettings.Connection = RunService.RenderStepped:Connect(function(dt)
         if not AimbotSettings.Enabled then return end
 
-        -- MODIFICATION: aim activation source depends on platform
         local rmbPressed
         if AimbotSettings.AlwaysOn then
             rmbPressed = true
@@ -1082,12 +1152,10 @@ local function aimbotLoop()
         local factor = (smoothness <= 0) and 1 or math.clamp(1 - (smoothness / 10), 0.05, 1)
 
         if AimbotSettings.UseCameraAim and worldTarget then
-            -- Silent camera rotation
             local desiredLook = CFrame.lookAt(Camera.CFrame.Position, worldTarget)
             local newCF = Camera.CFrame:Lerp(desiredLook, factor)
             Camera.CFrame = newCF
         else
-            -- Original mouse movement
             local delta = screenTarget - center
             mousemoverel(delta.X * factor, delta.Y * factor)
         end
@@ -1214,14 +1282,6 @@ local AimOffsetYSlider = CombatTab:CreateSlider({
     end,
 })
 
-local TeamCheckToggle = CombatTab:CreateToggle({
-    Name = "Don't Aim at Teammates",
-    CurrentValue = false,
-    Callback = function(Value)
-        AimbotSettings.TeamCheck = Value
-    end,
-})
-
 RunService.RenderStepped:Connect(function()
     if AimbotSettings.FOVCircle and AimbotSettings.FOVCircle.Visible then
         AimbotSettings.FOVCircle.Position = workspace.CurrentCamera.ViewportSize / 2
@@ -1282,7 +1342,7 @@ UtilityTab:CreateParagraph({
     Content = "Applying transparency to many breakable objects may cause a brief lag spike."
 })
 
-local transparencyValue = 50  -- default percentage
+local transparencyValue = 50
 
 local TransparencySlider = UtilityTab:CreateSlider({
     Name = "Transparency",
@@ -1318,5 +1378,79 @@ UtilityTab:CreateButton({
             Content = "Updated " .. count .. " breakable objects.",
             Duration = 3
         })
+    end,
+})
+
+-- NEW: Unload Cheat button
+UtilityTab:CreateButton({
+    Name = "🚫 Unload Cheat",
+    Callback = function()
+        Rayfield:Notify({
+            Title = "Unloading...",
+            Content = "Disabling everything and removing the GUI.",
+            Duration = 2
+        })
+
+        NoRecoilSettings.Enabled = false
+        pcall(function() RunService:UnbindFromRenderStep("DynamicZeroRecoil") end)
+
+        _G.ESP_SETTINGS.MainEnabled = false
+        _G.ESP_SETTINGS.Tracers = false
+        _G.ESP_SETTINGS.HealthBar = false
+        _G.espSkeletons = false
+        _G.ESP_ENABLED = false
+
+        for player, ui in pairs(_G.ESP_Table) do
+            if ui.Box then ui.Box:Remove() end
+            if ui.Tracer then ui.Tracer:Remove() end
+            if ui.Health then ui.Health:Remove() end
+            if ui.Name then ui.Name:Remove() end
+        end
+        _G.ESP_Table = {}
+
+        for char, data in pairs(_G.skeleton_list) do
+            for _, line in ipairs(data.lines) do
+                line:Remove()
+            end
+        end
+        _G.skeleton_list = {}
+
+        for char, data in pairs(_G.esp_list) do
+            data.folder:Destroy()
+        end
+        _G.esp_list = {}
+
+        TriggerbotSettings.Enabled = false
+        if TriggerbotSettings.Connection then
+            TriggerbotSettings.Connection:Disconnect()
+            TriggerbotSettings.Connection = nil
+        end
+        releaseMouse()
+        TriggerbotSettings.IsWaiting = false
+        TriggerbotSettings.IsFiring = false
+        TriggerbotSettings.IsPressed = false
+
+        AimbotSettings.Enabled = false
+        if AimbotSettings.Connection then
+            AimbotSettings.Connection:Disconnect()
+            AimbotSettings.Connection = nil
+        end
+        if AimbotSettings.FOVCircle then
+            AimbotSettings.FOVCircle:Remove()
+            AimbotSettings.FOVCircle = nil
+        end
+        AimbotModeText:Remove()
+        AimbotSettings.WasRMBPressed = false
+        AimbotSettings.RandomPart = nil
+
+        if optimizeConnection then
+            optimizeConnection:Disconnect()
+            optimizeConnection = nil
+        end
+
+        Rayfield:Destroy()
+
+        task.wait(0.5)
+        print("Cheat fully unloaded")
     end,
 })
