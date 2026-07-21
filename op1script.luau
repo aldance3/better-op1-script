@@ -1191,7 +1191,7 @@ local SmoothnessSlider = CombatTab:CreateSlider({
 
 local FOVSlider = CombatTab:CreateSlider({
     Name = "FOV",
-    Range = {50, 300},
+    Range = {30, 750},
     Increment = 5,
     Suffix = "px",
     CurrentValue = 150,
